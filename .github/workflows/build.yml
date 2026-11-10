@@ -1,0 +1,42 @@
+name: build-kmod
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl xz-utils bison flex libssl-dev libelf-dev \python3 python-is-python3 build-essential zstd
+
+      - name: clang18
+        run: |
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 prebuilts
+          CD=$(ls -d $PWD/prebuilts/clang-r5* | tail -1)
+          echo "CLANG_DIR=$CD" >> $GITHUB_ENV
+
+      - name: kernel
+        run: |
+          git clone --depth=1 https://android.googlesource.com/kernel/common -b android15-6.6 kernel
+
+      - name: build kernel + symvers
+        run: |
+          cd kernel
+          make ARCH=arm64 LLVM=1 CC=$CLANG_DIR/bin/clang LD=$CLANG_DIR/bin/ld.lld \gki_defconfig
+          make ARCH=arm64 LLVM=1 CC=$CLANG_DIR/bin/clang LD=$CLANG_DIR/bin/ld.lld \-j$(nproc) Image.gz modules
+
+      - name: build module
+        run: |
+          make -C kernel M=$PWD ARCH=arm64 LLVM=1 \CC=$CLANG_DIR/bin/clang LD=$CLANG_DIR/bin/ld.lld modules
+          ls -l *.ko
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ko
+          path: |
+            *.ko
+            kernel/Module.symvers
